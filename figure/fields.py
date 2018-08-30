@@ -3,6 +3,12 @@ from __future__ import absolute_import, unicode_literals
 
 import logging
 
+# Handle checking for strings on both Python 2 and 3.
+try:
+    basestring
+except NameError:
+    basestring = str
+
 logger = logging.getLogger(__name__)
 
 
@@ -29,6 +35,26 @@ class Field(object):
     def name(self):
         """The name of the field inside a source."""
         return self._name if self._name is not None else self.attr_name
+
+    def get_path_segments(self, prefix):
+        """Gets the list of path segments for this field.
+        :param prefix: the segments prefixing this field
+        :return: a list of segments
+        """
+        return prefix + [self.name]
+
+    def get_from_source(self, source, prefix):
+        """Get a value for this field from a Source.
+        :param source: the source to pull the value from
+        :param prefix: the segments prefixing this field
+        :return: the value, or None if it didn't exist
+        """
+        path = source.path_for(self.get_path_segments(prefix))
+        if path.value is not None:
+            logger.info('Got \'%s\' from %s as %s', path, source.name, path.value)
+        else:
+            logger.info('%s value doesn\'t exist for \'%s\'', source.name, path)
+        return path.value
 
     def instance_for(self, cfg):
         """Create an instance bound to a config.
@@ -64,32 +90,12 @@ class Field(object):
             # If we use self.attr here, it won't set values where the default is None.
             setattr(self.cfg, self.field.attr_name, self.field.default)
 
-        def get_path_segments(self, prefix):
-            """Gets the list of path segments for this field.
-            :param prefix: the segments prefixing this field
-            :return: a list of segments
-            """
-            return prefix + [self.field.name]
-
-        def get_from_source(self, source, prefix):
-            """Get a value for this instance from a Source.
-            :param source: the source to pull the value from
-            :param prefix: the segments prefixing this field
-            :return: the value, or None if it didn't exist
-            """
-            path = source.path_for(self.get_path_segments(prefix))
-            if path.value is not None:
-                logger.info('Got \'%s\' from %s as %s', path, source.name, path.value)
-            else:
-                logger.info('%s value doesn\'t exist for \'%s\'', source.name, path)
-            return path.value
-
         def load_from_source(self, source, prefix):
             """Load this instance's attribute from a Source.
             :param source: the source to load the attribute from
             :param prefix: the segments prefixing this field
             """
-            self.attr = self.get_from_source(source, prefix)
+            self.attr = self.field.get_from_source(source, prefix)
 
         def validate(self):
             """Validate that this attribute has been set by at least one Source."""
@@ -112,9 +118,26 @@ class Int(Field):
         """An instance of the Int field."""
 
         def load_from_source(self, source, path):
-            value = self.get_from_source(source, path)
+            value = self.field.get_from_source(source, path)
             if value is not None:
                 self.attr = int(value)
+
+
+class Bool(Field):
+    """A boolean valued field."""
+
+    class Instance(Field.Instance):
+        """An instance of the Bool field."""
+
+        def load_from_source(self, source, path):
+            value = self.field.get_from_source(source, path)
+            if not isinstance(value, basestring):
+                return bool(value)
+            if value.lower() in ('true', 'yes', 'on', '1'):
+                return True
+            if value.lower() in ('false', 'no', 'off', '0'):
+                return False
+            return None
 
 
 class Nested(Field):
@@ -131,8 +154,8 @@ class Nested(Field):
             logger.info('Initializing \'%s\'', self.field.attr_name)
             self.attr = self.field.cls()
 
-        def load_from_source(self, source, path):
-            self.attr.merge_source(source, path + [self.field.name])
+        def load_from_source(self, source, prefix):
+            self.attr.merge_source(source, self.field.get_path_segments(prefix))
 
         def validate(self):
             self.attr.validate()
