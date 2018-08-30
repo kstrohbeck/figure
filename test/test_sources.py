@@ -4,6 +4,8 @@ import os
 import sys
 
 import pytest
+import hypothesis.strategies as st
+from hypothesis import given
 
 try:
     import ConfigParser as configparser
@@ -17,9 +19,11 @@ from figure import ConfigParser, Dict, Environment, FlatModule, Object
 def fake_obj():
     class Bar(object):
         baz = 'quux'
+
     class Fake(object):
         foo = 1
         bar = Bar()
+
     return Fake()
 
 
@@ -35,22 +39,19 @@ def cfg_parser():
     return parser
 
 
-def test_env_single_segment_has_correct_str():
-    source = Environment()
-    path = source.path_for(['foo'])
-    assert str(path) == 'FOO'
 
 
-def test_env_multiple_segments_have_correct_str():
-    source = Environment()
-    path = source.path_for(['foo', 'bar'])
-    assert str(path) == 'FOO_BAR'
 
-
-def test_env_path_starts_with_prefix():
-    source = Environment('test_prefix')
-    path = source.path_for(['foo'])
-    assert str(path).startswith('TEST_PREFIX')
+@pytest.mark.parametrize(['segments', 'string', 'env_prefix'], [
+    (['foo'], 'FOO', None),
+    (['foo', 'bar'], 'FOO_BAR', None),
+    (['foo'], 'PREFIX_FOO', 'prefix'),
+    (['foo', 'bar'], 'PREFIX_FOO_BAR', 'prefix'),
+])
+def test_env_paths_have_correct_string(segments, string, env_prefix):
+    source = Environment(env_prefix)
+    path = source.path_for(segments)
+    assert str(path) == string
 
 
 def test_env_value_is_correct():
@@ -168,16 +169,32 @@ def test_object_returns_none_if_parent_wasnt_object(fake_obj):
     assert path.value is None
 
 
-def test_cfg_parser_single_prefix_has_correct_section():
+@pytest.mark.parametrize(['segments', 'string'], [
+    (['foo'], '[general]foo'),
+    (['foo', 'bar'], '[foo]bar'),
+    (['foo', 'bar', 'baz'], '[foo.bar]baz'),
+])
+def test_cfg_parser_path_has_correct_string(segments, string):
     source = ConfigParser(None)
-    path = source.path_for(['foo', 'bar'])
-    assert str(path).startswith('[foo]')
+    path = source.path_for(segments)
+    assert str(path) == string
 
 
-def test_cfg_parser_multi_prefix_has_correct_section():
-    source = ConfigParser(None)
-    path = source.path_for(['foo', 'bar', 'baz'])
-    assert str(path).startswith('[foo.bar]')
+@pytest.mark.parametrize(['general', 'gen_section'], [
+    ('general', '[general]'),
+    ('defaults', '[defaults]'),
+    ('gen', '[gen]'),
+])
+@pytest.mark.parametrize(['segments', 'string'], [
+    (['foo'], None),
+    (['foo', 'bar'], '[foo]bar'),
+    (['foo', 'bar', 'baz'], '[foo.bar]baz'),
+])
+def test_cfg_parser_with_cust_general_path_has_correct_string(general, gen_section, segments, string):
+    source = ConfigParser(None, general=general)
+    path = source.path_for(segments)
+    string = string if string is not None else gen_section + segments[-1]
+    assert str(path) == string
 
 
 def test_cfg_parser_uses_custom_separator_in_section():
@@ -186,48 +203,19 @@ def test_cfg_parser_uses_custom_separator_in_section():
     assert str(path).startswith('[foo/bar]')
 
 
-def test_cfg_parser_non_prefixed_has_general_section():
-    source = ConfigParser(None)
-    path = source.path_for(['foo'])
-    assert str(path).startswith('[general]')
-
-
-def test_cfg_parser_uses_custom_general_section():
-    source = ConfigParser(None, general='defaults')
-    path = source.path_for(['foo'])
-    assert str(path).startswith('[defaults]')
-
-def test_cfg_parser_returns_correct_general_value(cfg_parser):
+@pytest.mark.parametrize(['segments', 'value'], [
+    (['bar'], '1'),
+    (['foo', 'baz'], 'true'),
+    (['foo', 'bar', 'baz'], 'hello'),
+    (['baz'], None),
+    (['foo', 'quux'], None),
+    (['quux', 'bar'], None),
+])
+def test_cfg_parser_returns_correct_value(segments, value, cfg_parser):
     source = ConfigParser(cfg_parser)
-    path = source.path_for(['bar'])
-    assert path.value == '1'
+    path = source.path_for(segments)
 
-
-def test_cfg_parser_returns_correct_single_nested_value(cfg_parser):
-    source = ConfigParser(cfg_parser)
-    path = source.path_for(['foo', 'baz'])
-    assert path.value == 'true'
-
-
-def test_cfg_parser_returns_correct_multi_nested_value(cfg_parser):
-    source = ConfigParser(cfg_parser)
-    path = source.path_for(['foo', 'bar', 'baz'])
-    assert path.value == 'hello'
-
-
-def test_cfg_parser_returns_none_for_missing_value(cfg_parser):
-    source = ConfigParser(cfg_parser)
-    path = source.path_for(['baz'])
-    assert path.value is None
-
-
-def test_cfg_parser_returns_none_for_missing_nested_value(cfg_parser):
-    source = ConfigParser(cfg_parser)
-    path = source.path_for(['foo', 'quux'])
-    assert path.value is None
-
-
-def test_cfg_parser_returns_none_for_missing_parent(cfg_parser):
-    source = ConfigParser(cfg_parser)
-    path = source.path_for(['quux', 'bar'])
-    assert path.value is None
+    if value is None:
+        assert path.value is None
+    else:
+        assert path.value == value
