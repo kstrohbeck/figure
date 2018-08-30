@@ -95,7 +95,12 @@ class Dict(Source):
             return '.'.join(self.segments)
 
         def get_value(self):
-            return _drill_down(self.source.dict, self.segments, lambda o, n: o.get(n, None))
+            return _drill_down(self.source.dict, self.segments, _dict_get)
+
+
+def _dict_get(dct, name):
+    if hasattr(dct, 'get'):
+        return dct.get(name, None)
 
 
 class Object(Source):
@@ -109,7 +114,11 @@ class Object(Source):
             return '.'.join(self.segments)
 
         def get_value(self):
-            return _drill_down(self.source.obj, self.segments, lambda o, n: getattr(o, n, None))
+            return _drill_down(self.source.obj, self.segments, _obj_get)
+
+
+def _obj_get(obj, name):
+    return getattr(obj, name, None)
 
 
 def _drill_down(obj, names, step):
