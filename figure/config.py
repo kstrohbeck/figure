@@ -34,7 +34,7 @@ class Config(object):
         for inst in self._field_instances:
             inst.load_from_source(source, prefix)
 
-    def merge_sources(self, *sources, prefix=None):
+    def merge_sources(self, sources, prefix=None):
         for source in sources:
             self.merge_source(source, prefix)
 
